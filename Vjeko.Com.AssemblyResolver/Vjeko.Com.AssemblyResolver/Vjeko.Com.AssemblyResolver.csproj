@@ -7,8 +7,8 @@
     <ProjectGuid>{EDBD92CF-8182-4437-8B31-BE295B569704}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>Vjeko.Com.AssemblyResolver</RootNamespace>
-    <AssemblyName>Vjeko.Com.AssemblyResolver</AssemblyName>
+    <RootNamespace>NavHelper.AssemblyResolver</RootNamespace>
+    <AssemblyName>NavHelper.AssemblyResolver</AssemblyName>
     <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
   </PropertyGroup>

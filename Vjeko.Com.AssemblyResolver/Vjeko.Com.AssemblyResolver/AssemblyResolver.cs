@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Reflection;
 
-namespace Vjeko.Com.AssemblyResolver
+namespace NavHelper.AssemblyResolver
 {
     /// <summary>
     /// Helper class for Microsoft Dynamics NAV that allows C/AL to receive the AssemblyResolve event and process it at runtime.
@@ -18,7 +18,11 @@ namespace Vjeko.Com.AssemblyResolver
         /// </summary>
         private static readonly Dictionary<string, byte[]> Assemblies = new Dictionary<string, byte[]>();
 
-        private bool _subscribed;
+        /// <summary>
+        /// Returns subscribed state for the application domain AssemblyResolve event for the current instance.
+        /// </summary>
+        public bool Subscribed { get; private set; }
+
         private static readonly object LockAssemblies = new object();
 
         /// <summary>
@@ -44,25 +48,15 @@ namespace Vjeko.Com.AssemblyResolver
         }
 
         /// <summary>
-        /// Constructor, creates an instance of the class and immediately subscribes to events if requested.
-        /// </summary>
-        /// <param name="autoSubscribe">If true, the instance will automatically subscribe to AssemblyResolve event.</param>
-        public AssemblyResolver(bool autoSubscribe)
-        {
-            if (autoSubscribe)
-                Subscribe();
-        }
-
-        /// <summary>
         /// Subscribes this instance to the AssemblyResolve event of the current application domain. It needs only be called
         /// if the instance is constructed with autoSubscribe = false.
         /// </summary>
         public void Subscribe()
         {
-            if (!_subscribed)
+            if (!Subscribed)
             {
                 AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
-                _subscribed = true;
+                Subscribed = true;
             }
         }
 
@@ -72,10 +66,10 @@ namespace Vjeko.Com.AssemblyResolver
         /// </summary>
         public void Unsubscribe()
         {
-            if (_subscribed)
+            if (Subscribed)
             {
                 AppDomain.CurrentDomain.AssemblyResolve -= CurrentDomain_AssemblyResolve;
-                _subscribed = false;
+                Subscribed = false;
             }
         }
 
