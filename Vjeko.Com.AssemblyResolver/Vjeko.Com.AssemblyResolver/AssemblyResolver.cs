@@ -1,6 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
+[assembly: AssemblyTitle("NavHelper.AssemblyResolver")]
+[assembly: AssemblyVersion("1.0.0.0")]
+[assembly: AssemblyFileVersion("1.0.0.0")]
 
 namespace NavHelper.AssemblyResolver
 {
@@ -13,17 +17,67 @@ namespace NavHelper.AssemblyResolver
     /// </summary>
     public class AssemblyResolver : IDisposable
     {
-        /// <summary>
-        /// The static cache makes sure that there is only one repository of resolvable assemblies per application domain.
-        /// </summary>
         private static readonly Dictionary<string, byte[]> Assemblies = new Dictionary<string, byte[]>();
-
-        /// <summary>
-        /// Returns subscribed state for the application domain AssemblyResolve event for the current instance.
-        /// </summary>
-        public bool Subscribed { get; private set; }
+        private static readonly List<AssemblyResolver> Resolvers = new List<AssemblyResolver>();
+        private static bool _resolverActive;
 
         private static readonly object LockAssemblies = new object();
+        private static readonly object LockResolvers = new object();
+
+        private bool _subscribed;
+
+        /// <summary>
+        /// Subscribes this instance of AssemblyResolver to the AssemblyResolve event of the current application domain if
+        /// no other instance of AssemblyResolver is already subscribed to that event.
+        /// </summary>
+        private void Subscribe()
+        {
+            if (_resolverActive) return;
+
+            _resolverActive = true;
+            _subscribed = true;
+            AppDomain.CurrentDomain.AssemblyResolve += AssemblyResolve;
+        }
+
+        /// <summary>
+        /// Unsubscribes this instance of AssemblyResolver from the AssemblyResolve event of the current application domain if
+        /// this instance was subscribed to it.
+        /// </summary>
+        private void Unsubscribe()
+        {
+            if (!_subscribed) return;
+
+            _resolverActive = false;
+            AppDomain.CurrentDomain.AssemblyResolve -= AssemblyResolve;
+        }
+
+        private Assembly AssemblyResolve(object sender, ResolveEventArgs args)
+        {
+            lock (LockAssemblies)
+            {
+                if (!Assemblies.ContainsKey(args.Name) && OnResolveAssembly != null)
+                    OnResolveAssembly.Invoke(sender, args);
+
+
+                return AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.FullName == args.Name) ??
+                       (Assemblies.ContainsKey(args.Name)
+                           ? Assembly.Load(Assemblies[args.Name])
+                           : null);
+            }
+        }
+
+        /// <summary>
+        /// Constructor. It adds this instance of the AssemblyResolver to the static list of resolvers, and then attempts to
+        /// subscribe this instance to the AssemblyResolve event of the current application domain.
+        /// </summary>
+        public AssemblyResolver()
+        {
+            lock (LockResolvers)
+            {
+                Resolvers.Add(this);
+                Subscribe();
+            }
+        }
 
         /// <summary>
         /// The event that is be published to C/AL. It is simply a wrapper around the AssemblyResolve event that cannot be
@@ -48,50 +102,23 @@ namespace NavHelper.AssemblyResolver
         }
 
         /// <summary>
-        /// Subscribes this instance to the AssemblyResolve event of the current application domain. It needs only be called
-        /// if the instance is constructed with autoSubscribe = false.
-        /// </summary>
-        public void Subscribe()
-        {
-            if (!Subscribed)
-            {
-                AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
-                Subscribed = true;
-            }
-        }
-
-        /// <summary>
-        /// Unsubscribes this instance from the AssemblyResolve event of the current application domain. It should be called
-        /// explicitly at the end of each session.
-        /// </summary>
-        public void Unsubscribe()
-        {
-            if (Subscribed)
-            {
-                AppDomain.CurrentDomain.AssemblyResolve -= CurrentDomain_AssemblyResolve;
-                Subscribed = false;
-            }
-        }
-
-        private Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs args)
-        {
-            lock (LockAssemblies)
-            {
-                if (!Assemblies.ContainsKey(args.Name) && OnResolveAssembly != null)
-                    OnResolveAssembly.Invoke(sender, args);
-
-                return Assemblies.ContainsKey(args.Name) ? Assembly.Load(Assemblies[args.Name]) : null;
-            }
-        }
-
-        /// <summary>
-        /// Implements the Dispose method of the IDisposable interface. It provides the disposal logic in case Unsubscribe was
-        /// not called directly, and the session ends (e.g. a session crash or something). This is just a safety mechanism in
-        /// case there are issues with NAV properly disposing of an instance of AssemblyResolver class.
+        /// Implements the IDisposable interface. It first unsubscribes current instance from listening to the ApplicationResolve
+        /// event of the current application domain (if this instance was subscribed to it), then removes this instance from the
+        /// static list of AssemblyResolver instances, and then subscribes the next instance from the list if there are any left.
+        /// This makes sure that there is always one and only one instance of the AssemblyResolver subscribed to the AssemblyResolve
+        /// event of the current application domain, and that any instances belonging to ended sessions are unsubscribed so that
+        /// they may be garbage-collected.
         /// </summary>
         void IDisposable.Dispose()
         {
-            Unsubscribe();
+            lock (LockResolvers)
+            {
+                Unsubscribe();
+
+                Resolvers.Remove(this);
+                if (Resolvers.Any())
+                    Resolvers.First().Subscribe();
+            }
         }
     }
 }
