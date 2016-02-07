@@ -1,0 +1,720 @@
+OBJECT Table 76001 .NET Assembly
+{
+  OBJECT-PROPERTIES
+  {
+    Date=07.02.16;
+    Time=18:51:14;
+    Modified=Yes;
+    Version List=Vjeko.com;
+  }
+  PROPERTIES
+  {
+    DataPerCompany=No;
+  }
+  FIELDS
+  {
+    { 1   ;   ;Assembly Name       ;Text250       ;CaptionML=ENU=Assembly Name }
+    { 2   ;   ;User ID             ;Code50        ;TableRelation=User."User Name";
+                                                   OnValidate=VAR
+                                                                UserMgt@1000 : Codeunit 418;
+                                                              BEGIN
+                                                                UserMgt.ValidateUserID("User ID");
+                                                              END;
+
+                                                   OnLookup=VAR
+                                                              UserMgt@1000 : Codeunit 418;
+                                                            BEGIN
+                                                              UserMgt.LookupUserID("User ID");
+                                                            END;
+
+                                                   CaptionML=ENU=User ID }
+    { 3   ;   ;Tier                ;Option        ;CaptionML=ENU=Tier;
+                                                   OptionCaptionML=ENU=Both,Server,Client;
+                                                   OptionString=Both,Server,Client }
+    { 10  ;   ;Assembly            ;BLOB          ;CaptionML=ENU=Assembly }
+  }
+  KEYS
+  {
+    {    ;Assembly Name,User ID,Tier              ;Clustered=Yes }
+  }
+  FIELDGROUPS
+  {
+  }
+  CODE
+  {
+
+    PROCEDURE InstallAssembly@3(VAR InStr@1000 : InStream;VAR Asm@1002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Reflection.Assembly";Name@1004 : Text);
+    VAR
+      Asmbl@1005 : Record 76001;
+      MemStream@1001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.MemoryStream";
+      OutStr@1003 : OutStream;
+    BEGIN
+      WITH Asmbl DO BEGIN
+        MemStream := MemStream.MemoryStream();
+        COPYSTREAM(MemStream,InStr);
+        Asm := Asm.Load(MemStream.ToArray());
+
+        IF Name = '' THEN BEGIN
+          "Assembly Name" := Asm.FullName;
+        END ELSE
+          "Assembly Name" := Name;
+
+        Assembly.CREATEOUTSTREAM(OutStr);
+        MemStream.Seek(0,0);
+        COPYSTREAM(OutStr,MemStream);
+
+        IF INSERT() THEN
+          MODIFY();
+      END;
+    END;
+
+    BEGIN
+    END.
+  }
+}
+
+OBJECT Codeunit 76001 .NET Assembly Resolver
+{
+  OBJECT-PROPERTIES
+  {
+    Date=07.02.16;
+    Time=19:05:09;
+    Modified=Yes;
+    Version List=Vjeko.com;
+  }
+  PROPERTIES
+  {
+    SingleInstance=Yes;
+    OnRun=BEGIN
+            StartResolver();
+          END;
+
+  }
+  CODE
+  {
+    VAR
+      ResolverNst@1000 : DotNet "'NavHelper.AssemblyResolver, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.NavHelper.AssemblyResolver.AssemblyResolver" WITHEVENTS;
+      ResolverRtc@1001 : DotNet "'NavHelper.AssemblyResolver, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.NavHelper.AssemblyResolver.AssemblyResolver" RUNONCLIENT;
+      Text001@1002 : TextConst 'ENU=Dynamic .NET assembly resolver was not installed because the corresponding .NET interop add-in is not configured. Please configure it, otherwise you will not be able to use NP Retail solution.';
+      CompilerError@1003 : TextConst 'ENU=Error compiling the resolver assembly:\\%1';
+      AssemblyName@1004 : TextConst 'ENU="NavHelper.AssemblyResolver, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"';
+      TypeName@1005 : TextConst 'ENU=NavHelper.AssemblyResolver.AssemblyResolver';
+      ShortAssemblyName@1006 : TextConst 'ENU=NavHelper.AssemblyResolver';
+
+    LOCAL PROCEDURE ResolveAssemblies@6();
+    VAR
+      Asmbl@1000 : Record 76001;
+    BEGIN
+      WITH Asmbl DO BEGIN
+        SETFILTER("User ID",'%1|%2','',USERID);
+        IF FINDSET() THEN
+          REPEAT
+            IF (Tier IN [Tier::Both,Tier::Client]) AND (CURRENTCLIENTTYPE = CLIENTTYPE::Windows) THEN
+              ResolveAssembly(Asmbl,ResolverRtc,Tier::Client);
+            IF Tier IN [Tier::Both,Tier::Server] THEN
+              ResolveAssembly(Asmbl,ResolverNst,Tier::Server);
+          UNTIL NEXT = 0;
+      END;
+    END;
+
+    LOCAL PROCEDURE ResolveServerSide@1(Name@1000 : Text;Resolver@1002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Object");
+    VAR
+      Asmbl@1001 : Record 76001;
+    BEGIN
+      WITH Asmbl DO BEGIN
+        SETRANGE("Assembly Name",Name);
+        SETFILTER(Tier,'%1|%2',Tier::Both,Tier::Server);
+        SETFILTER("User ID",'%1|%2','',USERID);
+        IF FINDFIRST() THEN
+          ResolveAssembly(Asmbl,Resolver,Tier::Server);
+      END;
+    END;
+
+    LOCAL PROCEDURE ResolveAssembly@7(Asmbl@1000 : Record 76001;VAR Resolver@1007 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Object";TargetTier@1003 : Integer);
+    VAR
+      Asm@1004 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Reflection.Assembly";
+      Bytes@1008 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      MemStr@1002 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.MemoryStream";
+      MethodInfo@1005 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Reflection.MethodInfo";
+      MethodInfoClient@1010 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Reflection.MethodInfo" RUNONCLIENT;
+      Params@1006 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      ParamsClient@1009 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array" RUNONCLIENT;
+      Object@1011 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Object";
+      InStr@1001 : InStream;
+    BEGIN
+      LoadAssemblyBytes(Asmbl,Bytes);
+      WITH Asmbl DO BEGIN
+        CASE TargetTier OF
+          Tier::Server:
+            BEGIN
+              MethodInfo := Resolver.GetType().GetMethod('ResolveAssembly');
+              Params := Params.CreateInstance(GETDOTNETTYPE(Object),2);
+              Params.SetValue("Assembly Name",0);
+              Params.SetValue(Bytes,1);
+              MethodInfo.Invoke(Resolver,Params);
+      END;
+          Tier::Client:
+            BEGIN
+              MethodInfoClient := Resolver.GetType().GetMethod('ResolveAssembly');
+              ParamsClient := ParamsClient.CreateInstance(GETDOTNETTYPE(Object),2);
+              ParamsClient.SetValue("Assembly Name",0);
+              ParamsClient.SetValue(Bytes,1);
+              MethodInfoClient.Invoke(Resolver,ParamsClient);
+            END;
+        END;
+      END;
+    END;
+
+    LOCAL PROCEDURE LoadAssemblyBytes@65(Asmbl@1000 : Record 76001;VAR Bytes@1001 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array");
+    VAR
+      MemStr@1004 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.MemoryStream";
+      InStr@1003 : InStream;
+      Byte@1002 : Byte;
+    BEGIN
+      WITH Asmbl DO BEGIN
+        CALCFIELDS(Assembly);
+        Assembly.CREATEINSTREAM(InStr);
+        MemStr := MemStr.MemoryStream();
+        COPYSTREAM(MemStr,InStr);
+        Bytes := MemStr.ToArray();
+      END;
+    END;
+
+    LOCAL PROCEDURE CompileResolverAssembly@56() : Text;
+    VAR
+      CodeDomProvider@1003 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.CodeDom.Compiler.CodeDomProvider";
+      CompilerParameters@1002 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.CodeDom.Compiler.CompilerParameters";
+      CompilerResults@1001 : DotNet "'System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.CodeDom.Compiler.CompilerResults";
+      Sources@1000 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Array";
+      Path@1005 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Path";
+    BEGIN
+      Sources := Sources.CreateInstance(GETDOTNETTYPE(''),1);
+      Sources.SetValue(GetSource(),0);
+
+      CodeDomProvider := CodeDomProvider.CreateProvider('CSharp');
+      CompilerParameters := CompilerParameters.CompilerParameters();
+      CompilerParameters.ReferencedAssemblies.Add('System.Core.dll');
+      CompilerParameters.OutputAssembly := Path.Combine(Path.GetTempPath(),ShortAssemblyName + '.dll');
+      CompilerResults := CodeDomProvider.CompileAssemblyFromSource(CompilerParameters,Sources);
+      IF CompilerResults.Errors.Count() > 0 THEN
+        ERROR(CompilerError,CompilerResults.Errors.Item(0));
+
+      EXIT(CompilerParameters.OutputAssembly);
+    END;
+
+    LOCAL PROCEDURE InstallResolverAssembly@12();
+    VAR
+      AddIn@100021 : Record 2000000069;
+      ZipFile@100014 : DotNet "'System.IO.Compression.FileSystem, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Compression.ZipFile";
+      Directory@100015 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Directory";
+      Path@100016 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.Path";
+      IOFile@100022 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.File";
+      FileStream@100024 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.FileStream";
+      FileMode@100023 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.IO.FileMode";
+      OutStream@100019 : OutStream;
+      Output@100013 : Text;
+      ZipSource@100017 : Text;
+      ZipTarget@100018 : Text;
+      AssemblyFileName@100020 : Text;
+    BEGIN
+      Output := CompileResolverAssembly();
+      ZipSource := Path.Combine(Path.GetTempPath,Path.GetTempFileName);
+      ZipTarget := Path.Combine(Path.GetTempPath,Path.GetTempFileName);
+
+      IF EXISTS(ZipSource) THEN
+        ERASE(ZipSource);
+      IF EXISTS(ZipTarget) THEN
+        ERASE(ZipTarget);
+
+      ZipSource := Path.Combine(Path.GetTempPath,Path.GetFileNameWithoutExtension(ZipSource));
+      ZipTarget := Path.Combine(Path.GetTempPath,Path.GetFileNameWithoutExtension(ZipTarget)) + '.zip';
+      Directory.CreateDirectory(ZipSource);
+
+      IOFile.Copy(Output,Path.Combine(ZipSource,Path.GetFileName(Output)));
+      ZipFile.CreateFromDirectory(ZipSource,ZipTarget);
+      FileStream := IOFile.Open(ZipTarget,FileMode.Open);
+
+      WITH AddIn DO BEGIN
+        "Add-in Name" := ShortAssemblyName;
+        Version := '1.0.0.0';
+        Category := Category::"DotNet Interoperability";
+        Resource.CREATEOUTSTREAM(OutStream);
+        COPYSTREAM(OutStream,FileStream);
+        IF NOT INSERT() THEN
+          MODIFY();
+      END;
+
+      FileStream.Close();
+      Directory.Delete(ZipSource,TRUE);
+      ERASE(ZipTarget);
+      ERASE(Output);
+    END;
+
+    LOCAL PROCEDURE GetSource@54() Source : Text;
+    BEGIN
+      Source += 'using System;using System.Collections.Concurrent;using System.Collections.Generic;using Sy';
+      Source += 'stem.Linq;using System.Reflection;[assembly:AssemblyTitle("NavHelper.AssemblyResolver")][a';
+      Source += 'ssembly:AssemblyVersion("1.0.0.0")][assembly:AssemblyFileVersion("1.0.0.0")]namespace NavH';
+      Source += 'elper.AssemblyResolver{public class AssemblyResolver:IDisposable{private static readonly C';
+      Source += 'oncurrentDictionary<string,byte[]>Assemblies =new ConcurrentDictionary<string,byte[]>();pr';
+      Source += 'ivate static readonly List<AssemblyResolver>Resolvers=new List<AssemblyResolver>();private';
+      Source += ' static bool _resolverActive;private static readonly object LockResolvers=new object();pri';
+      Source += 'vate bool _subscribed;private string GetExceptionMessage(Exception e,string method){return';
+      Source += ' string.Format("Exception of type{0} with message{1} was thrown in method{2}",e.GetType(),';
+      Source += 'e.Message,method);}private void Subscribe(){try{if(_resolverActive)return;_resolverActive=';
+      Source += 'true;_subscribed=true;AppDomain.CurrentDomain.AssemblyResolve+=AssemblyResolve;}catch(Exce';
+      Source += 'ption e){throw new Exception(GetExceptionMessage(e,"Subscribe"));}}private void Unsubscrib';
+      Source += 'e(){try{if(!_subscribed)return;_resolverActive=false;AppDomain.CurrentDomain.AssemblyResol';
+      Source += 've-=AssemblyResolve;}catch(Exception e){throw new Exception(GetExceptionMessage(e,"Unsubsc';
+      Source += 'ribe"));}}private Assembly AssemblyResolve(object sender,ResolveEventArgs args){try{if(!As';
+      Source += 'semblies.ContainsKey(args.Name)&&OnResolveAssembly!=null)OnResolveAssembly.Invoke(sender,a';
+      Source += 'rgs);}catch(Exception e){throw new Exception(GetExceptionMessage(e,"AssemblyResolve(resolv';
+      Source += 'ing)"));}try{return AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a=>a.FullName==';
+      Source += 'args.Name)??(Assemblies.ContainsKey(args.Name)?Assembly.Load(Assemblies[args.Name]):null);';
+      Source += '}catch(Exception e){throw new Exception(GetExceptionMessage(e,"AssemblyResolve(retrieving)';
+      Source += '"));}}public AssemblyResolver(){lock(LockResolvers){try{Resolvers.Add(this);}catch(Excepti';
+      Source += 'on e){throw new Exception(GetExceptionMessage(e,"[constructor]"));}Subscribe();}}public ev';
+      Source += 'ent EventHandler<ResolveEventArgs>OnResolveAssembly;public void ResolveAssembly(string nam';
+      Source += 'e,byte[]asm){try{Assemblies.AddOrUpdate(name,asm,(key,old)=>asm);}catch(Exception e){throw';
+      Source += ' new Exception(GetExceptionMessage(e,"ResolveAssembly"));}}void IDisposable.Dispose(){lock';
+      Source += '(LockResolvers){Unsubscribe();try{Resolvers.Remove(this);if(Resolvers.Any())Resolvers.Firs';
+      Source += 't().Subscribe();}catch(Exception e){throw new Exception(GetExceptionMessage(e,"Dispose"));';
+      Source += '}}}}}';
+    END;
+
+    LOCAL PROCEDURE StartResolver@4();
+    VAR
+      Asm@100015 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Reflection.Assembly";
+      AsmClient@100014 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Reflection.Assembly" RUNONCLIENT;
+      Object@100013 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Object";
+    BEGIN
+      IF NOT CANLOADTYPE(ResolverNst) THEN
+        InstallResolverAssembly();
+
+      IF NOT CANLOADTYPE(ResolverNst) THEN BEGIN
+        MESSAGE(Text001);
+        EXIT;
+      END;
+
+      ResolverNst := ResolverNst.AssemblyResolver();
+      IF CURRENTCLIENTTYPE = CLIENTTYPE::Windows THEN
+        ResolverRtc := ResolverRtc.AssemblyResolver();
+
+      ResolveAssemblies();
+    END;
+
+    [EventSubscriber(Codeunit,1,OnAfterCompanyOpen)]
+    LOCAL PROCEDURE OnAfterCompanyOpen@2();
+    BEGIN
+      StartResolver();
+    END;
+
+    EVENT ResolverNst@1000::OnResolveAssembly@11(sender@100014 : Variant;e@100013 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.ResolveEventArgs");
+    BEGIN
+      ResolveServerSide(e.Name,ResolverNst);
+    END;
+
+    BEGIN
+    END.
+  }
+}
+
+OBJECT Codeunit 76002 Test Resolver
+{
+  OBJECT-PROPERTIES
+  {
+    Date=05.02.16;
+    Time=15:48:39;
+    Modified=Yes;
+    Version List=Vjeko.com;
+  }
+  PROPERTIES
+  {
+    OnRun=BEGIN
+            CODEUNIT.RUN(76001);
+            TestResolver := TestResolver.HelloWorld();
+            MESSAGE('%1',TestResolver.SayHello());
+          END;
+
+  }
+  CODE
+  {
+    VAR
+      TestResolver@1000 : DotNet "'TestResolver, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null'.TestResolver.HelloWorld";
+
+    BEGIN
+    END.
+  }
+}
+
+OBJECT MenuSuite 1080 Dept - Partner
+{
+  OBJECT-PROPERTIES
+  {
+    Date=05.02.16;
+    Time=14:07:02;
+    Modified=Yes;
+    Version List=Vjeko.com;
+  }
+  PROPERTIES
+  {
+  }
+  MENUNODES
+  {
+    {                ;[{7234476B-98CB-47D4-BABA-CA8ED3D7CD56}] ;NextNodeID=[{AC27BC98-A6E8-403D-B9B2-124E55CEB78A}] }
+    { MenuItem       ;[{AC27BC98-A6E8-403D-B9B2-124E55CEB78A}] ;Name=.NET Assemblies;
+                                                                CaptionML=ENU=.NET Assemblies;
+                                                                MemberOfMenu=[{19A352FE-D90D-424E-B85F-CF3B8E98CF0E}];
+                                                                RunObjectType=Page;
+                                                                RunObjectID=76001;
+                                                                ParentNodeID=[{0179BFD5-90F4-4EC1-A29D-3C0A571F8EB2}];
+                                                                Visible=Yes;
+                                                                NextNodeID=[{5881C68C-F1F7-47BA-8ED5-02D8149B2599}];
+                                                                DepartmentCategory=Administration }
+  }
+}
+OBJECT Page 9006 Order Processor Role Center
+{
+  OBJECT-PROPERTIES
+  {
+    Date=05.02.16;
+    Time=14:14:44;
+    Modified=Yes;
+    Version List=NAVW19.00,Vjeko.com;
+  }
+  PROPERTIES
+  {
+    CaptionML=ENU=Role Center;
+    PageType=RoleCenter;
+    ActionList=ACTIONS
+    {
+      { 1900000006;0 ;ActionContainer;
+                      ActionContainerType=Reports }
+      { 13      ;1   ;Action    ;
+                      CaptionML=ENU=Customer - &Order Summary;
+                      RunObject=Report 107;
+                      Image=Report }
+      { 14      ;1   ;Action    ;
+                      CaptionML=ENU=Customer - &Top 10 List;
+                      RunObject=Report 111;
+                      Image=Report }
+      { 47      ;1   ;Action    ;
+                      CaptionML=ENU=Customer/&Item Sales;
+                      RunObject=Report 113;
+                      Image=Report }
+      { 17      ;1   ;Separator  }
+      { 19      ;1   ;Action    ;
+                      CaptionML=ENU=Salesperson - Sales &Statistics;
+                      RunObject=Report 114;
+                      Image=Report }
+      { 20      ;1   ;Action    ;
+                      CaptionML=ENU=Price &List;
+                      RunObject=Report 715;
+                      Image=Report }
+      { 22      ;1   ;Separator  }
+      { 24      ;1   ;Action    ;
+                      CaptionML=ENU=Inventory - Sales &Back Orders;
+                      RunObject=Report 718;
+                      Image=Report }
+      { 1900000011;0 ;ActionContainer;
+                      ToolTipML=ENU=Manage sales processes. See KPIs and your favorite items and customers.;
+                      ActionContainerType=HomeItems }
+      { 2       ;1   ;Action    ;
+                      CaptionML=ENU=Sales Orders;
+                      RunObject=Page 9305;
+                      Image=Order }
+      { 6       ;1   ;Action    ;
+                      CaptionML=ENU=Shipped Not Invoiced;
+                      RunObject=Page 9305;
+                      RunPageView=WHERE(Shipped Not Invoiced=CONST(Yes)) }
+      { 7       ;1   ;Action    ;
+                      CaptionML=ENU=Completely Shipped Not Invoiced;
+                      RunObject=Page 9305;
+                      RunPageView=WHERE(Completely Shipped=CONST(Yes),
+                                        Invoice=CONST(No)) }
+      { 25      ;1   ;Action    ;
+                      CaptionML=ENU=Dynamics CRM Sales Orders;
+                      RunObject=Page 5353;
+                      RunPageView=WHERE(StateCode=FILTER(Submitted),
+                                        LastBackofficeSubmit=FILTER('')) }
+      { 11      ;1   ;Action    ;
+                      CaptionML=ENU=Sales Quotes;
+                      RunObject=Page 9300;
+                      Image=Quote }
+      { 49      ;1   ;Action    ;
+                      CaptionML=ENU=Blanket Sales Orders;
+                      RunObject=Page 9303 }
+      { 50      ;1   ;Action    ;
+                      CaptionML=ENU=Sales Invoices;
+                      RunObject=Page 9301;
+                      Image=Invoice }
+      { 51      ;1   ;Action    ;
+                      CaptionML=ENU=Sales Return Orders;
+                      RunObject=Page 9304;
+                      Image=ReturnOrder }
+      { 52      ;1   ;Action    ;
+                      CaptionML=ENU=Sales Credit Memos;
+                      RunObject=Page 9302 }
+      { 23      ;1   ;Action    ;
+                      CaptionML=ENU=Items;
+                      RunObject=Page 31;
+                      Image=Item }
+      { 26      ;1   ;Action    ;
+                      CaptionML=ENU=Customers;
+                      RunObject=Page 22;
+                      Image=Customer }
+      { 3       ;1   ;Action    ;
+                      CaptionML=ENU=Item Journals;
+                      RunObject=Page 262;
+                      RunPageView=WHERE(Template Type=CONST(Item),
+                                        Recurring=CONST(No)) }
+      { 5       ;1   ;Action    ;
+                      CaptionML=ENU=Sales Journals;
+                      RunObject=Page 251;
+                      RunPageView=WHERE(Template Type=CONST(Sales),
+                                        Recurring=CONST(No)) }
+      { 10      ;1   ;Action    ;
+                      CaptionML=ENU=Cash Receipt Journals;
+                      RunObject=Page 251;
+                      RunPageView=WHERE(Template Type=CONST(Cash Receipts),
+                                        Recurring=CONST(No));
+                      Image=Journals }
+      { 1900000012;0 ;ActionContainer;
+                      ActionContainerType=ActivityButtons }
+      { 39      ;1   ;ActionGroup;
+                      CaptionML=ENU=Posted Documents;
+                      ToolTipML=ENU=View history for sales, shipments, and inventory.;
+                      Image=FiledPosted }
+      { 40      ;2   ;Action    ;
+                      CaptionML=ENU=Posted Sales Shipments;
+                      RunObject=Page 142;
+                      Image=PostedShipment }
+      { 32      ;2   ;Action    ;
+                      CaptionML=ENU=Posted Sales Invoices;
+                      RunObject=Page 143;
+                      Image=PostedOrder }
+      { 33      ;2   ;Action    ;
+                      CaptionML=ENU=Posted Return Receipts;
+                      RunObject=Page 6662;
+                      Image=PostedReturnReceipt }
+      { 34      ;2   ;Action    ;
+                      CaptionML=ENU=Posted Sales Credit Memos;
+                      RunObject=Page 144;
+                      Image=PostedOrder }
+      { 53      ;2   ;Action    ;
+                      CaptionML=ENU=Posted Purchase Receipts;
+                      RunObject=Page 145 }
+      { 54      ;2   ;Action    ;
+                      CaptionML=ENU=Posted Purchase Invoices;
+                      RunObject=Page 146 }
+      { 16      ;0   ;ActionContainer;
+                      ActionContainerType=NewDocumentItems }
+      { 18      ;1   ;Action    ;
+                      CaptionML=ENU=Sales &Quote;
+                      RunObject=Page 41;
+                      Promoted=No;
+                      Image=Quote;
+                      PromotedCategory=Process;
+                      RunPageMode=Create }
+      { 15      ;1   ;Action    ;
+                      CaptionML=ENU=Sales &Invoice;
+                      RunObject=Page 43;
+                      Promoted=No;
+                      Image=Invoice;
+                      PromotedCategory=Process;
+                      RunPageMode=Create }
+      { 12      ;1   ;Action    ;
+                      CaptionML=ENU=Sales &Order;
+                      RunObject=Page 42;
+                      Promoted=No;
+                      Image=Document;
+                      PromotedCategory=Process;
+                      RunPageMode=Create }
+      { 9       ;1   ;Action    ;
+                      CaptionML=ENU=Sales &Return Order;
+                      RunObject=Page 6630;
+                      Promoted=No;
+                      Image=ReturnOrder;
+                      PromotedCategory=Process;
+                      RunPageMode=Create }
+      { 8       ;1   ;Action    ;
+                      CaptionML=ENU=Sales &Credit Memo;
+                      RunObject=Page 44;
+                      Promoted=No;
+                      Image=CreditMemo;
+                      PromotedCategory=Process;
+                      RunPageMode=Create }
+      { 1900000004;0 ;ActionContainer;
+                      ActionContainerType=ActionItems }
+      { 35      ;1   ;Separator ;
+                      CaptionML=ENU=Tasks;
+                      IsHeader=Yes }
+      { 36      ;1   ;Action    ;
+                      CaptionML=ENU=Sales &Journal;
+                      RunObject=Page 253;
+                      Image=Journals }
+      { 38      ;1   ;Action    ;
+                      CaptionML=ENU=Sales Price &Worksheet;
+                      RunObject=Page 7023;
+                      Image=PriceWorksheet }
+      { 42      ;1   ;Separator  }
+      { 43      ;1   ;Action    ;
+                      CaptionML=ENU=Sales &Prices;
+                      RunObject=Page 7002;
+                      Image=SalesPrices }
+      { 44      ;1   ;Action    ;
+                      CaptionML=ENU=Sales &Line Discounts;
+                      RunObject=Page 7004;
+                      Image=SalesLineDisc }
+      { 45      ;1   ;Separator ;
+                      CaptionML=ENU=History;
+                      IsHeader=Yes }
+      { 46      ;1   ;Action    ;
+                      CaptionML=ENU=Navi&gate;
+                      RunObject=Page 344;
+                      Image=Navigate }
+      { 27      ;1   ;Action    ;
+                      Name=Say Hello!;
+                      CaptionML=ENU=Say Hello!;
+                      RunObject=Codeunit 76002;
+                      Promoted=Yes;
+                      PromotedIsBig=Yes;
+                      Image=Alerts;
+                      PromotedCategory=Process }
+    }
+  }
+  CONTROLS
+  {
+    { 1900000008;0;Container;
+                ContainerType=RoleCenterArea }
+
+    { 1900724808;1;Group   }
+
+    { 1901851508;2;Part   ;
+                AccessByPermission=TableData 110=R;
+                PagePartID=Page9060;
+                PartType=Page }
+
+    { 1907692008;2;Part   ;
+                PagePartID=Page9150;
+                PartType=Page }
+
+    { 1900724708;1;Group   }
+
+    { 1   ;2   ;Part      ;
+                AccessByPermission=TableData 110=R;
+                PagePartID=Page760;
+                PartType=Page }
+
+    { 4   ;2   ;Part      ;
+                PagePartID=Page675;
+                Visible=false;
+                PartType=Page }
+
+    { 1905989608;2;Part   ;
+                AccessByPermission=TableData 9152=R;
+                PagePartID=Page9152;
+                PartType=Page }
+
+    { 21  ;2   ;Part      ;
+                AccessByPermission=TableData 477=R;
+                PagePartID=Page681;
+                PartType=Page }
+
+    { 1903012608;2;Part   ;
+                PagePartID=Page9175;
+                Visible=FALSE;
+                PartType=Page }
+
+    { 1901377608;2;Part   ;
+                PartType=System;
+                SystemPartID=MyNotes }
+
+  }
+  CODE
+  {
+
+    BEGIN
+    END.
+  }
+}
+
+OBJECT Page 76001 .NET Assemblies
+{
+  OBJECT-PROPERTIES
+  {
+    Date=07.02.16;
+    Time=18:51:41;
+    Modified=Yes;
+    Version List=Vjeko.com;
+  }
+  PROPERTIES
+  {
+    SourceTable=Table76001;
+    PageType=List;
+    ActionList=ACTIONS
+    {
+      { 7       ;    ;ActionContainer;
+                      ActionContainerType=ActionItems }
+      { 8       ;1   ;Action    ;
+                      Ellipsis=Yes;
+                      CaptionML=ENU=Import Assembly...;
+                      Promoted=Yes;
+                      PromotedIsBig=Yes;
+                      Image=ImportDatabase;
+                      PromotedCategory=Process;
+                      OnAction=BEGIN
+                                 ImportAssembly();
+                               END;
+                                }
+    }
+  }
+  CONTROLS
+  {
+    { 1   ;0   ;Container ;
+                ContainerType=ContentArea }
+
+    { 2   ;1   ;Group     ;
+                Name=Group;
+                GroupType=Repeater }
+
+    { 3   ;2   ;Field     ;
+                SourceExpr="Assembly Name" }
+
+    { 4   ;2   ;Field     ;
+                SourceExpr="User ID" }
+
+    { 5   ;2   ;Field     ;
+                SourceExpr=Tier }
+
+  }
+  CODE
+  {
+
+    PROCEDURE ImportAssembly@2();
+    VAR
+      TempBlob@1002 : Record 99008535;
+      FileManagement@1001 : Codeunit 419;
+      Asm@1003 : DotNet "'mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089'.System.Reflection.Assembly";
+      InStr@1006 : InStream;
+      FileName@1000 : Text;
+      AllFilesTxt@1009 : TextConst 'ENU=All Files';
+      ImportFileTxt@1008 : TextConst 'ENU=.NET Assembly';
+      ImportTitleTxt@1005 : TextConst 'ENU=Import .NET Assembly';
+    BEGIN
+      FileName := FileManagement.BLOBImportWithFilter(
+        TempBlob,ImportTitleTxt,'',
+        ImportFileTxt + ' (*.dll)|*.dll|' + AllFilesTxt + ' (*.*)|*.*','*.*');
+
+      IF FileName <> '' THEN BEGIN
+        TempBlob.Blob.CREATEINSTREAM(InStr);
+        InstallAssembly(InStr,Asm,'');
+        CurrPage.UPDATE(FALSE);
+      END;
+    END;
+
+    BEGIN
+    END.
+  }
+}
+

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -17,26 +18,39 @@ namespace NavHelper.AssemblyResolver
     /// </summary>
     public class AssemblyResolver : IDisposable
     {
-        private static readonly Dictionary<string, byte[]> Assemblies = new Dictionary<string, byte[]>();
+        private static readonly ConcurrentDictionary<string, byte[]> Assemblies =
+            new ConcurrentDictionary<string, byte[]>();
+
         private static readonly List<AssemblyResolver> Resolvers = new List<AssemblyResolver>();
         private static bool _resolverActive;
-
-        private static readonly object LockAssemblies = new object();
         private static readonly object LockResolvers = new object();
 
         private bool _subscribed;
 
+
+        private string GetExceptionMessage(Exception e, string method)
+        {
+            return string.Format("Exception of type {0} with message {1} was thrown in method {2}",
+                e.GetType(), e.Message, method);
+        }
         /// <summary>
         /// Subscribes this instance of AssemblyResolver to the AssemblyResolve event of the current application domain if
         /// no other instance of AssemblyResolver is already subscribed to that event.
         /// </summary>
         private void Subscribe()
         {
-            if (_resolverActive) return;
+            try
+            {
+                if (_resolverActive) return;
 
-            _resolverActive = true;
-            _subscribed = true;
-            AppDomain.CurrentDomain.AssemblyResolve += AssemblyResolve;
+                _resolverActive = true;
+                _subscribed = true;
+                AppDomain.CurrentDomain.AssemblyResolve += AssemblyResolve;
+            }
+            catch (Exception e)
+            {
+                throw new Exception(GetExceptionMessage(e, "Subscribe"));
+            }
         }
 
         /// <summary>
@@ -45,24 +59,41 @@ namespace NavHelper.AssemblyResolver
         /// </summary>
         private void Unsubscribe()
         {
-            if (!_subscribed) return;
+            try
+            {
+                if (!_subscribed) return;
 
-            _resolverActive = false;
-            AppDomain.CurrentDomain.AssemblyResolve -= AssemblyResolve;
+                _resolverActive = false;
+                AppDomain.CurrentDomain.AssemblyResolve -= AssemblyResolve;
+            }
+            catch (Exception e)
+            {
+                throw new Exception(GetExceptionMessage(e, "Unsubscribe"));
+            }
         }
 
         private Assembly AssemblyResolve(object sender, ResolveEventArgs args)
         {
-            lock (LockAssemblies)
+            try
             {
                 if (!Assemblies.ContainsKey(args.Name) && OnResolveAssembly != null)
                     OnResolveAssembly.Invoke(sender, args);
+            }
+            catch (Exception e)
+            {
+                throw new Exception(GetExceptionMessage(e, "AssemblyResolve (resolving)"));
+            }
 
-
+            try
+            {
                 return AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.FullName == args.Name) ??
                        (Assemblies.ContainsKey(args.Name)
                            ? Assembly.Load(Assemblies[args.Name])
                            : null);
+            }
+            catch (Exception e)
+            {
+                throw new Exception(GetExceptionMessage(e, "AssemblyResolve (retrieving)"));
             }
         }
 
@@ -74,7 +105,14 @@ namespace NavHelper.AssemblyResolver
         {
             lock (LockResolvers)
             {
-                Resolvers.Add(this);
+                try
+                {
+                    Resolvers.Add(this);
+                }
+                catch (Exception e)
+                {
+                    throw new Exception(GetExceptionMessage(e, "[constructor]"));
+                }
                 Subscribe();
             }
         }
@@ -92,12 +130,13 @@ namespace NavHelper.AssemblyResolver
         /// <param name="asm">Byte array containing the assembly bytes to store in the instance cache.</param>
         public void ResolveAssembly(string name, byte[] asm)
         {
-            lock (LockAssemblies)
+            try
             {
-                if (Assemblies.ContainsKey(name))
-                    Assemblies.Remove(name);
-
-                Assemblies.Add(name, asm);
+                Assemblies.AddOrUpdate(name, asm, (key, old) => asm);
+            }
+            catch (Exception e)
+            {
+                throw new Exception(GetExceptionMessage(e, "ResolveAssembly"));
             }
         }
 
@@ -115,9 +154,16 @@ namespace NavHelper.AssemblyResolver
             {
                 Unsubscribe();
 
-                Resolvers.Remove(this);
-                if (Resolvers.Any())
-                    Resolvers.First().Subscribe();
+                try
+                {
+                    Resolvers.Remove(this);
+                    if (Resolvers.Any())
+                        Resolvers.First().Subscribe();
+                }
+                catch (Exception e)
+                {
+                    throw new Exception(GetExceptionMessage(e, "Dispose"));
+                }
             }
         }
     }
