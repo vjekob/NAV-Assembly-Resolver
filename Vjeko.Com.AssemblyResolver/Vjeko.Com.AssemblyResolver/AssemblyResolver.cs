@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 [assembly: AssemblyTitle("NavHelper.AssemblyResolver")]
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.0.0.1")]
+[assembly: AssemblyFileVersion("1.0.0.1")]
 
 namespace NavHelper.AssemblyResolver
 {
@@ -18,8 +18,8 @@ namespace NavHelper.AssemblyResolver
     /// </summary>
     public class AssemblyResolver : IDisposable
     {
-        private static readonly ConcurrentDictionary<string, byte[]> Assemblies =
-            new ConcurrentDictionary<string, byte[]>();
+        private static readonly ConcurrentDictionary<string, Tuple<byte[], byte[]>> Assemblies =
+            new ConcurrentDictionary<string, Tuple<byte[],byte[]>>();
 
         private static readonly List<AssemblyResolver> Resolvers = new List<AssemblyResolver>();
         private static bool _resolverActive;
@@ -88,7 +88,7 @@ namespace NavHelper.AssemblyResolver
             {
                 return AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.FullName == args.Name) ??
                        (Assemblies.ContainsKey(args.Name)
-                           ? Assembly.Load(Assemblies[args.Name])
+                           ? Assembly.Load(Assemblies[args.Name].Item1, Assemblies[args.Name].Item2)
                            : null);
             }
             catch (Exception e)
@@ -128,11 +128,12 @@ namespace NavHelper.AssemblyResolver
         /// </summary>
         /// <param name="name">Fully qualified name of the assembly to store in the instance cache.</param>
         /// <param name="asm">Byte array containing the assembly bytes to store in the instance cache.</param>
-        public void ResolveAssembly(string name, byte[] asm)
+        /// <param name="pdb">Byte array containing the debug information for the assembly.</param>
+        public void ResolveAssembly(string name, byte[] asm, byte[] pdb)
         {
             try
             {
-                Assemblies.AddOrUpdate(name, asm, (key, old) => asm);
+                Assemblies.AddOrUpdate(name, new Tuple<byte[], byte[]>(asm, pdb), (key, old) => new Tuple<byte[], byte[]>(asm, pdb));
             }
             catch (Exception e)
             {
